@@ -140,7 +140,7 @@ class LoLCog(commands.Cog, name="League of Legends"):
         await ctx.send(embed=embed)
 
     @lol.command("stats")
-    async def lol_stats(self, ctx: core.Context, summoner_name: str) -> None:
+    async def lol_stats(self, ctx: core.Context, *, summoner_name: str) -> None:
         """Gets the League of Legends stats for a summoner.
 
         Parameters
@@ -151,22 +151,23 @@ class LoLCog(commands.Cog, name="League of Legends"):
             The summoner name, or username, of the League of Legends player being queried.
         """
 
-        # Assemble the embed parameters.
-        stats = await self.check_lol_stats(summoner_name)
-        stat_headers = ("Name", "Winrate", "Rank")
-        title = f"League of Legends Stats: *{summoner_name}*"
+        async with ctx.typing():
+            # Assemble the embed parameters.
+            stats = await self.check_lol_stats(summoner_name)
+            stat_headers = ("Name", "Winrate", "Rank")
+            title = f"League of Legends Stats: *{summoner_name}*"
 
-        # Construct the embed for the stats.
-        if stats == ("None", "None", "None"):
-            embed = StatsEmbed(
-                color=0x193d2c,
-                title=title,
-                description="This player either doesn't exist or isn't ranked!"
-            )
-        else:
-            embed = StatsEmbed(stat_names=stat_headers, stat_values=stats, color=0x193d2c, title=title)
+            # Construct the embed for the stats.
+            if stats == ("None", "None", "None"):
+                embed = StatsEmbed(
+                    color=0x193d2c,
+                    title=title,
+                    description="This player either doesn't exist or isn't ranked!"
+                )
+            else:
+                embed = StatsEmbed(stat_names=stat_headers, stat_values=stats, color=0x193d2c, title=title)
 
-        await ctx.send(embed=embed)
+            await ctx.send(embed=embed)
 
     @lol.command("leaderboard")
     async def lol_leaderboard(self, ctx: core.Context, *, summoner_names: str | None = None) -> None:
@@ -180,22 +181,23 @@ class LoLCog(commands.Cog, name="League of Legends"):
             A string of summoner names to create a leaderboard from. Separate these by spaces.
         """
 
-        # Append a default list of summoners if the command was called in a certain private guild.
-        if ctx.guild.id == 107584745809944576:
-            if summoner_names is not None:
-                summoner_name_list = summoner_names.split()
-                summoner_name_list.extend(self.default_summoners_list)
-                summoner_name_list = list(set(summoner_name_list))
+        async with ctx.typing():
+            # Append a default list of summoners if the command was called in a certain private guild.
+            if ctx.guild.id == 107584745809944576:
+                if summoner_names is not None:
+                    summoner_name_list = summoner_names.split()
+                    summoner_name_list.extend(self.default_summoners_list)
+                    summoner_name_list = list(set(summoner_name_list))
+                else:
+                    summoner_name_list = self.default_summoners_list
             else:
-                summoner_name_list = self.default_summoners_list
-        else:
-            summoner_name_list = summoner_names.split() if (summoner_names is not None) else []
+                summoner_name_list = summoner_names.split() if (summoner_names is not None) else []
 
-        # Get the information for every user and construct the leaderboard embed.
-        embed: StatsEmbed = await self.create_lol_leaderboard(summoner_name_list)
-        view = UpdateOPGGView(self.bot, summoner_name_list)
+            # Get the information for every user and construct the leaderboard embed.
+            embed: StatsEmbed = await self.create_lol_leaderboard(summoner_name_list)
+            view = UpdateOPGGView(self.bot, summoner_name_list)
 
-        await ctx.send(embed=embed, view=view)
+            await ctx.send(embed=embed, view=view)
 
     async def create_lol_leaderboard(self, summoner_name_list: list[str]) -> StatsEmbed:
         """Asynchronously performs queries to OP.GG for summoners' stats and displays them as a leaderboard.
@@ -249,12 +251,14 @@ class LoLCog(commands.Cog, name="League of Legends"):
 
         try:
             async with self.bot.web_client.get(url, headers=self.req_headers) as response:
-                text = await response.text()
+                content = await response.read()
 
             # Parse the summoner information for winrate and tier (referred to later as rank).
-            doc = lh.fromstring(text)
-            winrate = doc.xpath("//div[contains(@class, 'ratio')]/text()").removeprefix('Win Rate ')
-            rank = doc.xpath("//div[contains(@class, 'tier')]/text()").capitalize()
+            tree = lh.fromstring(content)
+            winrate = "".join(tree.xpath("//div[@class='ratio']/text()")).removeprefix('Win Rate ')
+            rank = "".join(tree.xpath("//div[@class='tier']/text()")).capitalize()
+            if not (winrate and rank):
+                raise AttributeError
         except AttributeError:
             # Raised if the summoner has no games in ranked or no data at all.
             summoner_name, winrate, rank = "None", "None", "None"
